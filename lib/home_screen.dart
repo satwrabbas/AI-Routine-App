@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:intl/intl.dart'; // لتنسيق التاريخ
+import 'package:intl/intl.dart'; 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'db_helper.dart';
@@ -18,40 +18,40 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // 1. المتغيرات الأساسية
+  
   final LocalDBHelper _dbHelper = LocalDBHelper();
   final NotificationService _notificationService = NotificationService();
   final SupabaseClient _supabase = Supabase.instance.client;
   
-  // استبدل هذا المفتاح بمفتاحك الخاص من Google AI Studio
+  
 
   final String _geminiApiKey = dotenv.env['GEMINI_API_KEY']!; 
   late final GenerativeModel _geminiModel;
 
   List<Map<String, dynamic>> _tasks = [];
-  bool _isLoading = false; // لعرض مؤشر التحميل أثناء عمل الذكاء الاصطناعي
+  bool _isLoading = false; 
 
   @override
   void initState() {
     super.initState();
-    // إعداد Gemini (نستخدم flash لسرعته وقلة تكلفته)
+    
     _geminiModel = GenerativeModel(
       model: 'gemini-2.5-flash',
       apiKey: _geminiApiKey,
       generationConfig: GenerationConfig(
-        responseMimeType: 'application/json', // إجبار الرد بصيغة JSON
+        responseMimeType: 'application/json', 
       ),
     );
 
-    _loadLocalData(); // عرض البيانات المحلية فوراً (Offline-First)
-    _syncData();      // بدء المزامنة في الخلفية
+    _loadLocalData(); 
+    _syncData();      
   }
 
-  // ----------------------------------------------------------------
-  // 2. منطق Offline-First والمزامنة (القلب النابض للتطبيق)
-  // ----------------------------------------------------------------
+  
+  
+  
 
-  // تحميل البيانات من SQLite فقط (سريع جداً)
+  
   Future<void> _loadLocalData() async {
     final userId = _supabase.auth.currentUser!.id;
     final data = await _dbHelper.getTasks(userId);
@@ -60,65 +60,65 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // المزامنة: رفع المحلي غير المتزامن وجلب الجديد من السيرفر
+  
   Future<void> _syncData() async {
     final userId = _supabase.auth.currentUser!.id;
 
-    // أ) رفع المهام المحذوفة (Delete Sync)
-    // أ) رفع المهام المحذوفة (Delete Sync)
+    
+    
     final deletedIds = await _dbHelper.getDeletedTasksQueue();
     if (deletedIds.isNotEmpty) {
-      // تحويل القائمة إلى صيغة نصية يفهمها بوستجريس: ("id1","id2")
-      // مثال: ("uuid-1","uuid-2")
+      
+      
       final idsString = '(${deletedIds.map((e) => '"$e"').join(',')})';
       
-      // استخدام filter بدلاً من in_
+      
       await _supabase
           .from('tasks')
           .delete()
-          .filter('id', 'in', idsString); // تمت إضافة الفاصلة المنقوطة هنا
+          .filter('id', 'in', idsString); 
       
       for (var id in deletedIds) {
         await _dbHelper.removeFromDeletedQueue(id);
       }
     }
 
-    // ب) رفع المهام الجديدة/المعدلة (Upsert Sync)
+    
     final unsyncedTasks = await _dbHelper.getUnsyncedTasks();
     for (var task in unsyncedTasks) {
-      // إعداد البيانات للسيرفر (تحويل البوليان)
+      
       final taskForServer = {
         ...task,
         'is_completed': task['is_completed'] == 1,
-        // نزيل الحقول المحلية التي لا توجد في السيرفر
+        
         'is_synced': null 
       };
-      taskForServer.remove('is_synced'); // تنظيف
+      taskForServer.remove('is_synced'); 
 
       await _supabase.from('tasks').upsert(taskForServer);
       await _dbHelper.markTaskAsSynced(task['id']);
     }
 
-    // ج) جلب أحدث البيانات من السيرفر (Pull Sync)
+    
     try {
       final remoteData = await _supabase
           .from('tasks')
           .select()
-          .eq('user_id', userId); // RLS يضمن ذلك، لكن للتأكيد
+          .eq('user_id', userId); 
 
       for (var remoteTask in remoteData) {
-        // تحويل البيانات لتناسب SQLite
+        
         final localTask = {
           'id': remoteTask['id'],
           'user_id': remoteTask['user_id'],
           'title': remoteTask['title'],
-          'scheduled_time': remoteTask['scheduled_time'], // نص ISO
+          'scheduled_time': remoteTask['scheduled_time'], 
           'is_completed': remoteTask['is_completed'] == true ? 1 : 0,
-          'is_synced': 1, // لأنها قادمة من السيرفر فهي متزامنة
+          'is_synced': 1, 
         };
         await _dbHelper.upsertTask(localTask);
         
-        // إعادة جدولة الإشعارات للمهام غير المكتملة (لضمان عملها على أجهزة جديدة)
+        
         if (localTask['is_completed'] == 0) {
           _notificationService.scheduleTaskNotification(
             taskId: localTask['id'],
@@ -128,21 +128,21 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
       
-      // تحديث الواجهة بعد المزامنة الكاملة
+      
       _loadLocalData();
       
     } catch (e) {
-      // في حالة عدم وجود إنترنت، لا نفعل شيئاً، التطبيق يعمل محلياً بامتياز
+      
       debugPrint("Sync failed (Offline mode): $e");
     }
   }
 
-  // ----------------------------------------------------------------
-  // 3. عمليات CRUD (Create, Update, Delete)
-  // ----------------------------------------------------------------
+  
+  
+  
 
   Future<void> _addTask(String title, DateTime time) async {
-    final newId = const Uuid().v4(); // توليد ID محلياً
+    final newId = const Uuid().v4(); 
     final userId = _supabase.auth.currentUser!.id;
 
     final newTask = {
@@ -150,25 +150,53 @@ class _HomeScreenState extends State<HomeScreen> {
       'user_id': userId,
       'title': title,
       'scheduled_time': time.toIso8601String(),
-      'is_completed': 0, // false
-      'is_synced': 0, // غير متزامن بعد
+      'is_completed': 0, 
+      'is_synced': 0, 
     };
 
-    // 1. حفظ محلي
+    
     await _dbHelper.upsertTask(newTask);
     
-    // 2. جدولة إشعار
+    
     await _notificationService.scheduleTaskNotification(
       taskId: newId,
       title: title,
       scheduledTime: time,
     );
 
-    // 3. تحديث واجهة
+    
     _loadLocalData();
 
-    // 4. محاولة مزامنة صامتة (Fire and Forget)
+    
     _syncData(); 
+  }
+
+  
+  Future<void> _editTask(String id, String newTitle, DateTime newTime) async {
+    final index = _tasks.indexWhere((t) => t['id'] == id);
+    if (index == -1) return;
+
+    var updatedTask = Map<String, dynamic>.from(_tasks[index]);
+    updatedTask['title'] = newTitle;
+    updatedTask['scheduled_time'] = newTime.toIso8601String();
+    updatedTask['is_synced'] = 0; 
+
+    
+    await _dbHelper.upsertTask(updatedTask);
+    
+    
+    await _notificationService.cancelNotification(id);
+    if (updatedTask['is_completed'] == 0) { 
+      await _notificationService.scheduleTaskNotification(
+        taskId: id,
+        title: newTitle,
+        scheduledTime: newTime,
+      );
+    }
+
+    
+    _loadLocalData();
+    _syncData();
   }
 
   Future<void> _toggleTaskCompletion(String id, bool? value) async {
@@ -177,11 +205,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     var updatedTask = Map<String, dynamic>.from(_tasks[index]);
     updatedTask['is_completed'] = (value == true) ? 1 : 0;
-    updatedTask['is_synced'] = 0; // يحتاج مزامنة
+    updatedTask['is_synced'] = 0; 
 
     await _dbHelper.upsertTask(updatedTask);
     
-    // إلغاء الإشعار إذا اكتملت
+    
     if (value == true) {
       await _notificationService.cancelNotification(id);
     }
@@ -191,22 +219,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _deleteTask(String id) async {
-    await _dbHelper.deleteTask(id); // يحفظ أيضاً في طابور الحذف
+    await _dbHelper.deleteTask(id); 
     await _notificationService.cancelNotification(id);
     _loadLocalData();
     _syncData();
   }
 
-  // ----------------------------------------------------------------
-  // 4. الذكاء الاصطناعي (Gemini Integration)
-  // ----------------------------------------------------------------
+  
+  
+  
 
   Future<void> _generateRoutine(String goal) async {
     setState(() => _isLoading = true);
     try {
       final now = DateTime.now();
       
-      // Prompt Engineering: الهندسة العكسية للطلب
+      
       final prompt = '''
       You are a strict JSON generator. 
       Create a daily routine for a user whose goal is: "$goal".
@@ -221,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final response = await _geminiModel.generateContent(content);
 
       if (response.text != null) {
-        // تنظيف النص (احتياطاً)
+        
         String cleanedJson = response.text!.replaceAll('```json', '').replaceAll('```', '').trim();
         List<dynamic> tasksJson = jsonDecode(cleanedJson);
 
@@ -241,22 +269,136 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // تسجيل الخروج
+  
   Future<void> _signOut() async {
-    await _dbHelper.clearAllData(); // تنظيف البيانات المحلية للحفاظ على الخصوصية
+    await _dbHelper.clearAllData(); 
     await _notificationService.cancelAll();
     await _supabase.auth.signOut();
-    // AuthGate في main.dart سيعيدنا تلقائياً لصفحة الدخول
+    
   }
 
-  // ----------------------------------------------------------------
-  // 5. واجهة المستخدم (Glassmorphism UI)
-  // ----------------------------------------------------------------
+
+  void _showTaskBottomSheet({Map<String, dynamic>? existingTask}) {
+    final bool isEdit = existingTask != null;
+    final titleController = TextEditingController(text: isEdit ? existingTask['title'] : '');
+    
+    
+    TimeOfDay selectedTime = isEdit 
+        ? TimeOfDay.fromDateTime(DateTime.parse(existingTask['scheduled_time']))
+        : TimeOfDay.now();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1E293B), 
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 20, right: 20, top: 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children:[
+                  Text(
+                    isEdit ? 'تعديل المهمة' : 'إضافة مهمة يدوياً',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  
+                  TextField(
+                    controller: titleController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'عنوان المهمة...',
+                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                      filled: true,
+                      fillColor: Colors.black.withOpacity(0.3),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  
+                  ListTile(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    tileColor: Colors.black.withOpacity(0.3),
+                    leading: const Icon(Icons.access_time, color: Color(0xFF6366F1)),
+                    title: const Text('وقت التنبيه', style: TextStyle(color: Colors.white)),
+                    trailing: Text(
+                      selectedTime.format(context),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    onTap: () async {
+                      final TimeOfDay? picked = await showTimePicker(
+                        context: context,
+                        initialTime: selectedTime,
+                      );
+                      if (picked != null) {
+                        setModalState(() => selectedTime = picked);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF6366F1),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () {
+                        if (titleController.text.trim().isEmpty) return;
+                        
+                        
+                        final now = DateTime.now();
+                        DateTime scheduledDateTime = DateTime(
+                          now.year, now.month, now.day, 
+                          selectedTime.hour, selectedTime.minute
+                        );
+
+                        
+                        if (scheduledDateTime.isBefore(now)) {
+                          scheduledDateTime = scheduledDateTime.add(const Duration(days: 1));
+                        }
+
+                        if (isEdit) {
+                          _editTask(existingTask['id'], titleController.text.trim(), scheduledDateTime);
+                        } else {
+                          _addTask(titleController.text.trim(), scheduledDateTime);
+                        }
+                        
+                        Navigator.pop(context);
+                      },
+                      child: Text(isEdit ? 'تحديث' : 'حفظ', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+  
+  
+  
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true, // للسماح للخلفية بالظهور خلف الـ AppBar
+      extendBodyBehindAppBar: true, 
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -269,6 +411,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.add_task),
+            onPressed: () => _showTaskBottomSheet(), 
+          ),
+          IconButton(
             icon: const Icon(Icons.logout),
             onPressed: _signOut,
           )
@@ -276,7 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Stack(
         children: [
-          // أ) الخلفية المتدرجة
+          
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -287,7 +433,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           
-          // ب) دوائر خلفية جمالية
+          
           Positioned(
             top: 100, right: -50,
             child: _buildBlurCircle(Colors.purple),
@@ -297,7 +443,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _buildBlurCircle(Colors.blueAccent),
           ),
 
-          // ج) قائمة المهام
+          
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _tasks.isEmpty
@@ -335,7 +481,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // بطاقة المهمة الزجاجية
+  
   Widget _buildGlassTaskCard(Map<String, dynamic> task, DateTime date, bool isCompleted) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -368,9 +514,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 DateFormat('hh:mm a').format(date),
                 style: TextStyle(color: Colors.white.withOpacity(0.6)),
               ),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.white54),
-                onPressed: () => _deleteTask(task['id']),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children:[
+                  
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, color: Colors.white54),
+                    onPressed: () => _showTaskBottomSheet(existingTask: task), 
+                  ),
+                  
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.white54),
+                    onPressed: () => _deleteTask(task['id']),
+                  ),
+                ],
               ),
             ),
           ),
@@ -379,7 +536,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // نافذة الحوار لإدخال الهدف للذكاء الاصطناعي
+  
   void _showGenerateDialog() {
     final controller = TextEditingController();
     showDialog(

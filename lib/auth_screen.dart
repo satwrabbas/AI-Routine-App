@@ -1,4 +1,4 @@
-import 'dart:ui'; // من أجل ImageFilter
+import 'dart:ui'; 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -13,20 +13,20 @@ class _AuthScreenState extends State<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
-  bool _isLogin = true; // للتبديل بين تسجيل الدخول وإنشاء حساب
+  bool _isLogin = true; 
 
-  // دالة المصادقة
+  
   Future<void> _submit() async {
     setState(() => _isLoading = true);
     try {
       if (_isLogin) {
-        // تسجيل الدخول
+        
         await Supabase.instance.client.auth.signInWithPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
       } else {
-        // إنشاء حساب جديد
+        
         await Supabase.instance.client.auth.signUp(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
@@ -60,49 +60,49 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // خلفية متدرجة (Night Sky Gradient)
+    
     return Scaffold(
       body: Stack(
         children: [
-          // 1. الخلفية الملونة
+          
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color(0xFF0F172A), // Slate 900
-                  Color(0xFF312E81), // Indigo 900
-                  Color(0xFF000000), // Black
+                  Color(0xFF0F172A), 
+                  Color(0xFF312E81), 
+                  Color(0xFF000000), 
                 ],
               ),
             ),
           ),
 
-          // 2. دوائر ضبابية لإعطاء عمق للتصميم
+          
           Positioned(
             top: -100,
             left: -100,
-            child: _buildBlurCircle(const Color(0xFF6366F1)), // Indigo
+            child: _buildBlurCircle(const Color(0xFF6366F1)), 
           ),
           Positioned(
             bottom: -100,
             right: -100,
-            child: _buildBlurCircle(const Color(0xFFEC4899)), // Pink
+            child: _buildBlurCircle(const Color(0xFFEC4899)), 
           ),
 
-          // 3. المحتوى داخل بطاقة زجاجية
+          
           Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), // تأثير الزجاج
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), 
                   child: Container(
                     padding: const EdgeInsets.all(32),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1), // شفافية بيضاء خفيفة
+                      color: Colors.white.withOpacity(0.1), 
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: Colors.white.withOpacity(0.2),
@@ -121,22 +121,22 @@ class _AuthScreenState extends State<AuthScreen> {
                         ),
                         const SizedBox(height: 30),
                         
-                        // حقل البريد الإلكتروني
+                        
                         _buildTextField(_emailController, 'البريد الإلكتروني', false),
                         const SizedBox(height: 20),
                         
-                        // حقل كلمة المرور
+                        
                         _buildTextField(_passwordController, 'كلمة المرور', true),
                         const SizedBox(height: 30),
 
-                        // زر الإجراء
+                        
                         SizedBox(
                           width: double.infinity,
                           height: 50,
                           child: ElevatedButton(
                             onPressed: _isLoading ? null : _submit,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF6366F1), // Indigo
+                              backgroundColor: const Color(0xFF6366F1), 
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -153,7 +153,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         
                         const SizedBox(height: 20),
                         
-                        // التبديل بين الدخول والتسجيل
+                        
                         TextButton(
                           onPressed: () {
                             setState(() => _isLogin = !_isLogin);
@@ -179,7 +179,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // ويدجت مساعدة لبناء الحقول بستايل زجاجي
+  
   Widget _buildTextField(
       TextEditingController controller, String hint, bool isPassword) {
     return TextField(
@@ -201,7 +201,7 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // ويدجت مساعدة للدوائر الخلفية
+  
   Widget _buildBlurCircle(Color color) {
     return Container(
       width: 300,

@@ -1,24 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 import 'notification_service.dart';
 import 'auth_screen.dart';
 import 'home_screen.dart'; 
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
+  
   WidgetsFlutterBinding.ensureInitialized();
 
-   await dotenv.load(fileName: ".env");
+  try {
+    
+    await dotenv.load(fileName: ".env");
+
+    
+    await Supabase.initialize(
+      url: dotenv.env['SUPABASE_URL']!,
+      anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+    );
+
+    
+    await NotificationService().init();
+
+    
+    
+    
+    await NotificationService().requestPermissions();
+    
+  } catch (e) {
+    print("Error during initialization: $e");
+  }
 
   
-  await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL']!,
-    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
-  );
-
-  
-  await NotificationService().init();
-
   runApp(const MyApp());
 }
 
@@ -30,8 +44,6 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'AI Routine Planner',
       debugShowCheckedModeBanner: false,
-      
-      
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0F172A), 
         primaryColor: const Color(0xFF6366F1), 
@@ -42,13 +54,10 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      
-      
       home: const AuthGate(),
     );
   }
 }
-
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -58,7 +67,6 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<AuthState>(
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
-        
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
@@ -68,10 +76,8 @@ class AuthGate extends StatelessWidget {
         final session = snapshot.data?.session;
 
         if (session != null) {
-          
           return const HomeScreen(); 
         } else {
-          
           return const AuthScreen();
         }
       },

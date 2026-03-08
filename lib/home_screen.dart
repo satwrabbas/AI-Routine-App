@@ -49,7 +49,89 @@ class _HomeScreenState extends State<HomeScreen> {
 
   
   
-  
+  // دالة إعادة الجدولة الديناميكية
+  Future<void> _rescheduleUncompletedTasks() async {
+    // 1. جلب المهام غير المكتملة فقط
+    final uncompletedTasks = _tasks.where((t) => t['is_completed'] == 0).toList();
+    
+    if (uncompletedTasks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا توجد مهام غير مكتملة لإعادة جدولتها!')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final now = DateTime.now();
+      
+      // تحويل المهام الحالية لنص ليفهمها الذكاء الاصطناعي
+      final tasksJsonString = jsonEncode(uncompletedTasks.map((t) => {
+        "id": t['id'],
+        "title": t['title'],
+        "old_time": t['scheduled_time']
+      }).toList());
+
+      // Prompt Engineering لإعادة الجدولة
+      final prompt = '''
+      You are a strict JSON generator.
+      The user missed their schedule. The CURRENT EXACT TIME is ${now.toIso8601String()}.
+      Here is the list of their uncompleted tasks:
+      $tasksJsonString
+      
+      Please reschedule these tasks to start AFTER the current time, distributing them logically for the rest of the day.
+      Keep the EXACT SAME "id" and "title" for each task, only change the "scheduled_time".
+      Format: JSON Array of objects with keys: "id" (string), "title" (string), "scheduled_time" (ISO 8601 string).
+      Do NOT include any markdown or plain text. Just the JSON array.
+      ''';
+
+      final content =[Content.text(prompt)];
+      final response = await _geminiModel.generateContent(content);
+
+      if (response.text != null) {
+        String cleanedJson = response.text!.replaceAll('```json', '').replaceAll('```', '').trim();
+        List<dynamic> rescheduledTasksJson = jsonDecode(cleanedJson);
+
+        for (var updatedTask in rescheduledTasksJson) {
+          // 2. تحديث كل مهمة في Local Database
+          final taskId = updatedTask['id'];
+          final newTime = DateTime.parse(updatedTask['scheduled_time']);
+          
+          final existingTaskIndex = _tasks.indexWhere((t) => t['id'] == taskId);
+          if (existingTaskIndex != -1) {
+            var taskToUpdate = Map<String, dynamic>.from(_tasks[existingTaskIndex]);
+            taskToUpdate['scheduled_time'] = newTime.toIso8601String();
+            taskToUpdate['is_synced'] = 0; // لنجبر المزامنة مع السيرفر
+
+            await _dbHelper.upsertTask(taskToUpdate);
+
+            // 3. إلغاء الإشعار القديم وجدولة الجديد
+            await _notificationService.cancelNotification(taskId);
+            await _notificationService.scheduleTaskNotification(
+              taskId: taskId,
+              title: taskToUpdate['title'],
+              scheduledTime: newTime,
+            );
+          }
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تمت إعادة جدولة مهامك بذكاء! 🪄')),
+        );
+
+        // 4. تحديث الواجهة ورفع التغييرات للسيرفر
+        _loadLocalData();
+        _syncData();
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('فشل في إعادة الجدولة: $e')),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
 
   
   Future<void> _loadLocalData() async {
@@ -409,12 +491,49 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Container(color: Colors.black.withOpacity(0.2)),
           ),
         ),
-        actions: [
+        actions:[
+          // الزر السحري لإعادة الجدولة
           IconButton(
+            tooltip: 'إعادة جدولة المهام المتأخرة',
+            icon: const Icon(Icons.auto_fix_high, color: Color(0xFFEC4899)), // لون وردي مميز
+            onPressed: () {
+              // إظهار نافذة تأكيد قبل العملية
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  backgroundColor: const Color(0xFF1E293B),
+                  title: const Text('عصا سحرية 🪄', style: TextStyle(color: Colors.white)),
+                  content: const Text(
+                    'هل تأخرت عن جدولك؟ سأقوم بإعادة ترتيب جميع مهامك غير المكتملة بناءً على الوقت الحالي.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  actions:[
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('إلغاء'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEC4899)),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _rescheduleUncompletedTasks();
+                      },
+                      child: const Text('إعادة جدولة', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          // زر الإضافة اليدوية
+          IconButton(
+            tooltip: 'إضافة مهمة',
             icon: const Icon(Icons.add_task),
             onPressed: () => _showTaskBottomSheet(), 
           ),
+          // زر تسجيل الخروج
           IconButton(
+            tooltip: 'خروج',
             icon: const Icon(Icons.logout),
             onPressed: _signOut,
           )

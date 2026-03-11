@@ -17,22 +17,36 @@ class LocalDBHelper {
   }
 
   
+  // تهيئة قاعدة البيانات
   Future<Database> _initDB() async {
     String path = join(await getDatabasesPath(), 'ai_planner.db');
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // رفعنا الإصدار إلى 2
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade, // دالة التحديث
     );
   }
 
-  
+  // إنشاء الجداول (للمستخدمين الجدد)
   Future _onCreate(Database db, int version) async {
-    
+    // 1. إنشاء جدول الروتينات
+    await db.execute('''
+      CREATE TABLE routines (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        ai_prompt TEXT,
+        is_synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
+    // 2. إنشاء جدول المهام (مع إضافة routine_id)
     await db.execute('''
       CREATE TABLE tasks (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
+        routine_id TEXT, 
         title TEXT NOT NULL,
         scheduled_time TEXT NOT NULL,
         is_completed INTEGER NOT NULL DEFAULT 0,
@@ -40,13 +54,58 @@ class LocalDBHelper {
       )
     ''');
 
-    
     await db.execute('''
       CREATE TABLE deleted_tasks_queue (
         id TEXT PRIMARY KEY
       )
     ''');
   }
+
+  // ترقية قاعدة البيانات (للمستخدمين الحاليين - مثلك)
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // إضافة جدول الروتينات
+      await db.execute('''
+        CREATE TABLE routines (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          ai_prompt TEXT,
+          is_synced INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      // إضافة عمود routine_id لجدول المهام الحالي
+      await db.execute('ALTER TABLE tasks ADD COLUMN routine_id TEXT;');
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // عمليات CRUD الخاصة بالروتينات
+  // ----------------------------------------------------------------
+  
+  Future<void> upsertRoutine(Map<String, dynamic> routine) async {
+    final db = await database;
+    if (!routine.containsKey('is_synced')) routine['is_synced'] = 0;
+    
+    await db.insert(
+      'routines',
+      routine,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getUnsyncedRoutines() async {
+    final db = await database;
+    return await db.query('routines', where: 'is_synced = ?', whereArgs: [0]);
+  }
+
+  Future<void> markRoutineAsSynced(String id) async {
+    final db = await database;
+    await db.update('routines', {'is_synced': 1}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  
+
 
   
   
@@ -160,5 +219,26 @@ class LocalDBHelper {
     final db = await database;
     await db.delete('tasks');
     await db.delete('deleted_tasks_queue');
+  }
+  // جلب جميع الروتينات للمستخدم
+  Future<List<Map<String, dynamic>>> getRoutines(String userId) async {
+    final db = await database;
+    return await db.query(
+      'routines',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'rowid DESC', // الأحدث أولاً
+    );
+  }
+
+  // جلب المهام التابعة لروتين معين
+  Future<List<Map<String, dynamic>>> getTasksByRoutine(String routineId) async {
+    final db = await database;
+    return await db.query(
+      'tasks',
+      where: 'routine_id = ?',
+      whereArgs: [routineId],
+      orderBy: 'scheduled_time ASC',
+    );
   }
 }

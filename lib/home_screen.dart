@@ -9,6 +9,7 @@ import 'db_helper.dart';
 import 'notification_service.dart';
 import 'auth_screen.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'routines_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -147,6 +148,19 @@ class _HomeScreenState extends State<HomeScreen> {
     final userId = _supabase.auth.currentUser!.id;
 
     
+    // --- الجديد: مزامنة الروتينات أولاً (Upsert Routines) ---
+    final unsyncedRoutines = await _dbHelper.getUnsyncedRoutines();
+    for (var routine in unsyncedRoutines) {
+      final routineForServer = Map<String, dynamic>.from(routine);
+      routineForServer.remove('is_synced'); // تنظيف قبل الرفع
+
+      try {
+        await _supabase.from('routines').upsert(routineForServer);
+        await _dbHelper.markRoutineAsSynced(routine['id']);
+      } catch (e) {
+        debugPrint("فشل مزامنة الروتين: $e");
+      }
+    }
     
     final deletedIds = await _dbHelper.getDeletedTasksQueue();
     if (deletedIds.isNotEmpty) {
@@ -223,33 +237,35 @@ class _HomeScreenState extends State<HomeScreen> {
   
   
 
-  Future<void> _addTask(String title, DateTime time) async {
+  // استبدل دالة _addTask الحالية بالكامل بهذا الكود:
+  Future<void> _addTask(String title, DateTime time, {String? routineId}) async {
     final newId = const Uuid().v4(); 
     final userId = _supabase.auth.currentUser!.id;
 
     final newTask = {
       'id': newId,
       'user_id': userId,
+      'routine_id': routineId, // الآن الدالة تتعرف عليه بشكل صحيح
       'title': title,
       'scheduled_time': time.toIso8601String(),
       'is_completed': 0, 
       'is_synced': 0, 
     };
 
-    
+    // 1. حفظ محلي
     await _dbHelper.upsertTask(newTask);
     
-    
+    // 2. جدولة إشعار
     await _notificationService.scheduleTaskNotification(
       taskId: newId,
       title: title,
       scheduledTime: time,
     );
 
-    
+    // 3. تحديث واجهة
     _loadLocalData();
 
-    
+    // 4. محاولة مزامنة صامتة (Fire and Forget)
     _syncData(); 
   }
 
@@ -331,14 +347,27 @@ class _HomeScreenState extends State<HomeScreen> {
       final response = await _geminiModel.generateContent(content);
 
       if (response.text != null) {
-        
         String cleanedJson = response.text!.replaceAll('```json', '').replaceAll('```', '').trim();
         List<dynamic> tasksJson = jsonDecode(cleanedJson);
 
+        // 1. إنشاء سجل الروتين (Routine Record)
+        final String newRoutineId = const Uuid().v4();
+        final routineRecord = {
+          'id': newRoutineId,
+          'user_id': _supabase.auth.currentUser!.id,
+          'title': 'روتين: $goal',
+          'ai_prompt': goal,
+          'is_synced': 0, // لنجبر المزامنة مع السيرفر
+        };
+        
+        await _dbHelper.upsertRoutine(routineRecord);
+
+        // 2. إضافة المهام وربطها بمعرف الروتين
         for (var t in tasksJson) {
           await _addTask(
             t['title'], 
-            DateTime.parse(t['scheduled_time'])
+            DateTime.parse(t['scheduled_time']),
+            routineId: newRoutineId // ربط المهمة بالروتين
           );
         }
       }
@@ -480,7 +509,51 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true, 
+      extendBodyBehindAppBar: true,
+      
+      // -- القائمة الجانبية الجديدة --
+      drawer: Drawer(
+        backgroundColor: const Color(0xFF1E293B),
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(colors:[Color(0xFF6366F1), Color(0xFF312E81)]),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: const[
+                  Icon(Icons.account_circle, size: 60, color: Colors.white),
+                  SizedBox(height: 10),
+                  Text('إدارة الروتينات', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.library_books, color: Colors.white),
+              title: const Text('مكتبة الروتينات', style: TextStyle(color: Colors.white)),
+              onTap: () async {
+                Navigator.pop(context); // إغلاق القائمة الجانبية
+                
+                // الانتقال للشاشة وانتظار النتيجة
+                final bool? shouldRefresh = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const RoutinesScreen()),
+                );
+                
+                // إذا قام المستخدم بتطبيق روتين، نحدث الشاشة والمزامنة
+                if (shouldRefresh == true) {
+                  _loadLocalData();
+                  _syncData();
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+      // --------------------------------
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
